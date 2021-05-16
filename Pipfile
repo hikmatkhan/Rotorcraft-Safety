@@ -8,6 +8,7 @@ pandas = "*"
 requests = "*"
 structlog = "*"
 openpyxl = "*"
+nltk = "*"
 
 [dev-packages]
 
