@@ -1,9 +1,11 @@
 import os
 import zipfile
 
+import nltk
 import pandas as pd
 import requests
 import structlog
+from nltk import RegexpTokenizer, WordNetLemmatizer
 
 _LOGGER = structlog.get_logger(__file__)
 HEADER_COLUMN = 12
@@ -55,36 +57,54 @@ def load_data(path_to_file: str) -> pd.DataFrame:
                  f"You may want to grab a coffee.")
     df = pd.read_excel(path_to_file, engine='openpyxl', header=HEADER_COLUMN)
     _LOGGER.info(f"Finished loading the excel data from {path_to_file} into a dataframe.")
-    df = sanitize_df(df)
     return df
 
 
 def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Cleans up column names and elements in a dataframe by stripping out whitespaces/delimiters, etc
+    Cleans up column names and elements in a dataframe by stripping out whitespaces/delimiters,
+    dropping rows with null text, etc.
     :param df: dataframe we're operating on/cleaning
     :return: dataframe with cleaned up columns and elements
     """
+    df = df.dropna(subset=['Text'])
     df = df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x)
     df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
     return df
 
 
-def predict(text: str):
-    FAULTY_PATTERN = ['OPS CHECKED GOOD', 'OPS CHECKS GOOD',
-                      'OPS CHECK GOOD', 'OPS CHECKS WERE GOOD', 'OPS CHECK AND LEAK CHECK GOOD',
-                      'OPS CHECK NORMAL', 'OPS CHECKS NORMAL', 'OPS CHECKED NORMAL']
-    if any(pattern in text for pattern in FAULTY_PATTERN):
-        return {'Text reflecting condition of failed part': 'FAULTY'}
-    return {'Text reflecting condition of failed part': 'UNKNOWN'}
+def tokenize(df: pd.DataFrame) -> pd.DataFrame:
+    tokenizer = RegexpTokenizer(r'\w+')
+    df['tokenized'] = df['Text'].apply(lambda x: tokenizer.tokenize(x))
+    return df
+
+
+def lemmatize(df: pd.DataFrame) -> pd.DataFrame:
+    nltk.download('wordnet')
+    lemmatiser = WordNetLemmatizer()
+    df['lemmatized'] = df['tokenized'].apply(lambda tokens:
+                                            [lemmatiser.lemmatize(token.lower(), pos='v') for token in tokens])
+    return df
 
 
 if __name__ == "__main__":
     local_dir = './data'
+
     # download the file
     path_to_downloaded_zip_file = download_file('https://www.fire.tc.faa.gov/zip/MasterModelVersion3DDeliverable.zip',
                                                 local_dir)
     # unzip the file
     path_to_file = unzip_file(path_to_downloaded_zip_file, local_dir)
+
+    # load the file into a Pandas dataframe
     df = load_data(path_to_file)
-    print("")
+
+    # clean up the dataframe (remove whitespace from columns and entries, remove rows with no data, etc.)
+    sanitized_df = sanitize_df(df)
+
+    # tokenize the text column in the dataframe
+    tokenized_df = tokenize(sanitized_df)
+
+    # lemmatize the tokens in the dataframe
+    lemmatized_df = lemmatize(tokenized_df)
+
