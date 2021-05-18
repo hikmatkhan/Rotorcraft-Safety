@@ -9,6 +9,7 @@ requests = "*"
 structlog = "*"
 openpyxl = "*"
 nltk = "*"
+scikit-learn = "*"
 
 [dev-packages]
 

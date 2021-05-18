@@ -1,11 +1,16 @@
 import os
 import zipfile
+from collections import Counter
+from typing import List, Tuple
 
 import nltk
+import numpy as np
 import pandas as pd
 import requests
 import structlog
 from nltk import RegexpTokenizer, WordNetLemmatizer
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
 
 _LOGGER = structlog.get_logger(__file__)
 HEADER_COLUMN = 12
@@ -87,6 +92,13 @@ def lemmatize(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str]]:
+    df['counter'] = df['lemmatized'].apply(lambda x: Counter(x))
+    vectorizer = DictVectorizer(sparse=False)
+    sparse_matrix = vectorizer.fit_transform(df['counter'])
+    return sparse_matrix, vectorizer.get_feature_names()
+
+
 if __name__ == "__main__":
     local_dir = './data'
 
@@ -107,4 +119,7 @@ if __name__ == "__main__":
 
     # lemmatize the tokens in the dataframe
     lemmatized_df = lemmatize(tokenized_df)
+
+    sparse_matrix, feature_names = vectorize(lemmatized_df)
+
 
