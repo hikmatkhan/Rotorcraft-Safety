@@ -9,10 +9,12 @@ import pandas as pd
 import requests
 import structlog
 from nltk import RegexpTokenizer, WordNetLemmatizer
+from nltk.corpus import stopwords
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.feature_extraction.text import CountVectorizer
+from pandarallel import pandarallel
 
 _LOGGER = structlog.get_logger(__file__)
+pandarallel.initialize()
 HEADER_COLUMN = 12
 
 
@@ -72,28 +74,41 @@ def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     :param df: dataframe we're operating on/cleaning
     :return: dataframe with cleaned up columns and elements
     """
+    _LOGGER.info("Cleaning up dataframe")
     df = df.dropna(subset=['Text'])
     df = df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x)
-    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df.parallel_applymap(lambda x: x.strip() if isinstance(x, str) else x)
     return df
 
 
 def tokenize(df: pd.DataFrame) -> pd.DataFrame:
+    _LOGGER.info("Tokenizing text")
     tokenizer = RegexpTokenizer(r'\w+')
     df['tokenized'] = df['Text'].apply(lambda x: tokenizer.tokenize(x))
     return df
 
 
 def lemmatize(df: pd.DataFrame) -> pd.DataFrame:
+    _LOGGER.info("Lemmatizing text")
     nltk.download('wordnet')
     lemmatiser = WordNetLemmatizer()
     df['lemmatized'] = df['tokenized'].apply(lambda tokens:
-                                            [lemmatiser.lemmatize(token.lower(), pos='v') for token in tokens])
+                                             [lemmatiser.lemmatize(token.lower(), pos='v') for token in tokens])
+    return df
+
+
+def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
+    _LOGGER.info("Removing stop words from text")
+    nltk.download('stopwords')
+    df['lemmatized_filtered'] = df['lemmatized'].parallel_apply(lambda lemmas:
+                                                                [lemma for lemma in lemmas if
+                                                                 lemma not in stopwords.words('english')])
     return df
 
 
 def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str]]:
-    df['counter'] = df['lemmatized'].apply(lambda x: Counter(x))
+    _LOGGER.info("Converting text to feature matrix")
+    df['counter'] = df['lemmatized_filtered'].apply(lambda x: Counter(x))
     vectorizer = DictVectorizer(sparse=False)
     sparse_matrix = vectorizer.fit_transform(df['counter'])
     return sparse_matrix, vectorizer.get_feature_names()
@@ -120,6 +135,9 @@ if __name__ == "__main__":
     # lemmatize the tokens in the dataframe
     lemmatized_df = lemmatize(tokenized_df)
 
-    sparse_matrix, feature_names = vectorize(lemmatized_df)
+    # remove english stopwords from lemmatized tokens
+    filtered_df = remove_stop_words(lemmatized_df)
 
+    sparse_matrix, feature_names = vectorize(filtered_df)
 
+    print()
