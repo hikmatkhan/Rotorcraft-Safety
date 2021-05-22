@@ -138,6 +138,6 @@ if __name__ == "__main__":
     # remove english stopwords from lemmatized tokens
     filtered_df = remove_stop_words(lemmatized_df)
 
+    # create a sparse feature matrix of size n x m,
+    # where n = number of documents, m = number of words in vocabulary
     sparse_matrix, feature_names = vectorize(filtered_df)
-
-    print()
