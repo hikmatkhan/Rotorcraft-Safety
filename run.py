@@ -106,38 +106,49 @@ def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str]]:
+def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str], List[int]]:
     _LOGGER.info("Converting text to feature matrix")
     df['counter'] = df['lemmatized_filtered'].apply(lambda x: Counter(x))
     vectorizer = DictVectorizer(sparse=False)
     sparse_matrix = vectorizer.fit_transform(df['counter'])
-    return sparse_matrix, vectorizer.get_feature_names()
+    return sparse_matrix, vectorizer.get_feature_names(), df['Index No.\n (Do not alter or delete)']
 
 
 if __name__ == "__main__":
     local_dir = './data'
 
-    # download the file
-    path_to_downloaded_zip_file = download_file('https://www.fire.tc.faa.gov/zip/MasterModelVersion3DDeliverable.zip',
-                                                local_dir)
-    # unzip the file
-    path_to_file = unzip_file(path_to_downloaded_zip_file, local_dir)
+    compute_features = False
 
-    # load the file into a Pandas dataframe
-    df = load_data(path_to_file)
+    if compute_features:
+        # download the file
+        path_to_downloaded_zip_file = download_file('https://www.fire.tc.faa.gov/zip/MasterModelVersion3DDeliverable.zip',
+                                                    local_dir)
+        # unzip the file
+        path_to_file = unzip_file(path_to_downloaded_zip_file, local_dir)
 
-    # clean up the dataframe (remove whitespace from columns and entries, remove rows with no data, etc.)
-    sanitized_df = sanitize_df(df)
+        # load the file into a Pandas dataframe
+        df = load_data(path_to_file)
 
-    # tokenize the text column in the dataframe
-    tokenized_df = tokenize(sanitized_df)
+        # clean up the dataframe (remove whitespace from columns and entries, remove rows with no data, etc.)
+        sanitized_df = sanitize_df(df)
 
-    # lemmatize the tokens in the dataframe
-    lemmatized_df = lemmatize(tokenized_df)
+        # tokenize the text column in the dataframe
+        tokenized_df = tokenize(sanitized_df)
 
-    # remove english stopwords from lemmatized tokens
-    filtered_df = remove_stop_words(lemmatized_df)
+        # lemmatize the tokens in the dataframe
+        lemmatized_df = lemmatize(tokenized_df)
+
+        # remove english stopwords from lemmatized tokens
+        filtered_df = remove_stop_words(lemmatized_df)
+
+        # save preprocessed data to save time for future runs
+        filtered_df.to_csv(f'{local_dir}/feature_data.csv')
+    else:
+        filtered_df = pd.read_csv(f'{local_dir}/feature_data.csv')
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    sparse_matrix, feature_names = vectorize(filtered_df)
+    sparse_matrix, feature_names, report_ids = vectorize(filtered_df)
+    print("woo")
+
+
