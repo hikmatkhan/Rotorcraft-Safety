@@ -117,7 +117,7 @@ def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str], List[int]]:
 if __name__ == "__main__":
     local_dir = './data'
 
-    compute_features = False
+    compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
 
     if compute_features:
         # download the file
@@ -149,6 +149,3 @@ if __name__ == "__main__":
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
     sparse_matrix, feature_names, report_ids = vectorize(filtered_df)
-    print("woo")
-
-
