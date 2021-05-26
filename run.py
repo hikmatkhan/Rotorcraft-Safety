@@ -1,6 +1,7 @@
 import os
 import zipfile
 from collections import Counter
+import random
 from typing import List, Tuple
 
 import nltk
@@ -114,6 +115,20 @@ def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str], List[int]]:
     return sparse_matrix, vectorizer.get_feature_names(), df['Index No.\n (Do not alter or delete)']
 
 
+def convert_to_vector_id_pairs(feature_matrix: np.array, report_ids: List[int]) -> List[Tuple[np.array, int]]:
+    feature_vectors = list(feature_matrix)
+    data = list(zip(feature_vectors, report_ids))
+    return data
+
+
+def shuffle_and_split_into_training_validation_sets(data: List[Tuple[np.array, int]],
+                                                    train_ratio: float = 0.9):
+    random.shuffle(data)
+    number_of_samples = len(data)
+    train_samples = int(train_ratio * number_of_samples)
+    return data[:train_samples], data[train_samples:]
+
+
 if __name__ == "__main__":
     local_dir = './data'
 
@@ -149,3 +164,11 @@ if __name__ == "__main__":
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
     sparse_matrix, feature_names, report_ids = vectorize(filtered_df)
+
+    # split the data up into (feature_vector, report_id) pairs
+    pairs = convert_to_vector_id_pairs(sparse_matrix, report_ids)
+
+    # shuffle and split the data
+    train, validation = shuffle_and_split_into_training_validation_sets(pairs)
+
+
