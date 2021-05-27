@@ -202,7 +202,7 @@ if __name__ == "__main__":
     train_data, train_report_ids = list(zip(*train))
     train_data = np.array(train_data)
     for feature_vector, report_id_of_document in validation:
-        pairwise_distances = linear_kernel(np.expand_dims(feature_vector, 0), np.array(train_data)).flatten()
+        pairwise_distances = linear_kernel(np.expand_dims(feature_vector, 0), train_data).flatten()
         sorted_distances = np.argsort(pairwise_distances)
         minimum_distance = sorted_distances[-1]
         report_id_of_closest_document = train_report_ids[minimum_distance]
