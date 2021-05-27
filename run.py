@@ -134,7 +134,7 @@ def shuffle_and_split_into_training_validation_sets(data: List[Tuple[np.array, i
     return data[:train_samples], data[train_samples:]
 
 
-def compute_inverse_frequency(feature_matrix: np.array) -> np.array:
+def compute_term_frequency_inverse_document_frequency(feature_matrix: np.array) -> np.array:
     transformer = TfidfTransformer(smooth_idf=False)
     ifd_matrix = transformer.fit_transform(feature_matrix)
     ifd_matrix = np.squeeze(np.array([x.toarray() for x in ifd_matrix]))
@@ -179,7 +179,7 @@ if __name__ == "__main__":
     feature_matrix, feature_names, report_ids = vectorize(filtered_df)
 
     # apply term frequency–inverse document frequency (tf-idf)
-    feature_matrix = compute_inverse_frequency(feature_matrix)
+    feature_matrix = compute_term_frequency_inverse_document_frequency(feature_matrix)
 
     # optionally apply dimensionality reduction (PCA)
     if dimensionality_reduction:
