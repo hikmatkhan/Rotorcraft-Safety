@@ -127,7 +127,7 @@ def convert_to_vector_id_pairs(feature_matrix: np.array, report_ids: List[int]) 
 
 
 def shuffle_and_split_into_training_validation_sets(data: List[Tuple[np.array, int]],
-                                                    train_ratio: float = 0.9):
+                                                    train_ratio: float = 0.9) -> Tuple[List[np.array], List[np.array]]:
     random.shuffle(data)
     number_of_samples = len(data)
     train_samples = int(train_ratio * number_of_samples)
