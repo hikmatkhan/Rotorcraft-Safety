@@ -173,6 +173,7 @@ if __name__ == "__main__":
         # save preprocessed data to save time for future runs
         filtered_df.to_csv(f'{local_dir}/feature_data.csv')
     else:
+        # don't go through the hassle of of preprocessing if we already have the preprocessed data saved
         filtered_df = pd.read_csv(f'{local_dir}/feature_data.csv')
         # we have to do this because otherwise, this column is loaded in as a string :(
         filtered_df['lemmatized_filtered'] = filtered_df['lemmatized_filtered'].parallel_apply(literal_eval)
