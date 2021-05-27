@@ -1,5 +1,6 @@
 import os
 import zipfile
+from ast import literal_eval
 from collections import Counter
 import random
 from typing import List, Tuple
@@ -11,8 +12,11 @@ import requests
 import structlog
 from nltk import RegexpTokenizer, WordNetLemmatizer
 from nltk.corpus import stopwords
+from sklearn.decomposition import PCA
 from sklearn.feature_extraction import DictVectorizer
 from pandarallel import pandarallel
+from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.neighbors import KNeighborsClassifier
 
 _LOGGER = structlog.get_logger(__file__)
 pandarallel.initialize()
@@ -109,7 +113,8 @@ def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
 
 def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str], List[int]]:
     _LOGGER.info("Converting text to feature matrix")
-    df['counter'] = df['lemmatized_filtered'].apply(lambda x: Counter(x))
+    df['lemmatized_filtered'] = df['lemmatized_filtered'].parallel_apply(literal_eval)
+    df['counter'] = df['lemmatized_filtered'].parallel_apply(lambda x: Counter(x))
     vectorizer = DictVectorizer(sparse=False)
     sparse_matrix = vectorizer.fit_transform(df['counter'])
     return sparse_matrix, vectorizer.get_feature_names(), df['Index No.\n (Do not alter or delete)']
@@ -129,10 +134,18 @@ def shuffle_and_split_into_training_validation_sets(data: List[Tuple[np.array, i
     return data[:train_samples], data[train_samples:]
 
 
+def compute_inverse_frequency(feature_matrix: np.array) -> np.array:
+    transformer = TfidfTransformer(smooth_idf=False)
+    ifd_matrix = transformer.fit_transform(feature_matrix)
+    ifd_matrix = np.squeeze(np.array([x.toarray() for x in ifd_matrix]))
+    return ifd_matrix
+
+
 if __name__ == "__main__":
     local_dir = './data'
 
     compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
+    dimensionality_reduction = True
 
     if compute_features:
         # download the file
@@ -163,12 +176,35 @@ if __name__ == "__main__":
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    sparse_matrix, feature_names, report_ids = vectorize(filtered_df)
+    feature_matrix, feature_names, report_ids = vectorize(filtered_df)
+
+    # apply term frequency–inverse document frequency (tf-idf)
+    feature_matrix = compute_inverse_frequency(feature_matrix)
+
+    # optionally apply dimensionality reduction (PCA)
+    if dimensionality_reduction:
+        num_components = 500
+        _LOGGER.info(f"Performing dimensionality reduction using PCA. Reducing to {num_components}.")
+        pca = PCA(n_components=num_components)
+        sparse_matrix = pca.fit_transform(feature_matrix)
 
     # split the data up into (feature_vector, report_id) pairs
-    pairs = convert_to_vector_id_pairs(sparse_matrix, report_ids)
+    pairs = convert_to_vector_id_pairs(feature_matrix, report_ids)
 
     # shuffle and split the data
     train, validation = shuffle_and_split_into_training_validation_sets(pairs)
+
+    # classification step
+    _LOGGER.info("Training a kNN classifier")
+    knn = KNeighborsClassifier(1)
+    train_data, train_labels = list(zip(*train))
+    validation_data, validation_labels = list(zip(*validation))
+
+    knn.fit(train_data, train_labels)
+    predictions = knn.predict(validation_data)
+    for n, predicted_report_id in enumerate(predictions):
+        ground_truth_report_id = validation_labels[n]
+        print("Ground Truth: ", filtered_df[filtered_df['Index No.\n (Do not alter or delete)'] == ground_truth_report_id].to_dict(orient='records'))
+        print("Prediction: ", filtered_df[filtered_df['Index No.\n (Do not alter or delete)'] == predicted_report_id].to_dict(orient='records'))
 
 
