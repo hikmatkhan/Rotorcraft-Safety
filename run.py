@@ -16,6 +16,7 @@ from sklearn.decomposition import PCA
 from sklearn.feature_extraction import DictVectorizer
 from pandarallel import pandarallel
 from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.metrics.pairwise import linear_kernel
 from sklearn.neighbors import KNeighborsClassifier
 
 _LOGGER = structlog.get_logger(__file__)
@@ -113,7 +114,6 @@ def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
 
 def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str], List[int]]:
     _LOGGER.info("Converting text to feature matrix")
-    df['lemmatized_filtered'] = df['lemmatized_filtered'].parallel_apply(literal_eval)
     df['counter'] = df['lemmatized_filtered'].parallel_apply(lambda x: Counter(x))
     vectorizer = DictVectorizer(sparse=False)
     sparse_matrix = vectorizer.fit_transform(df['counter'])
@@ -126,11 +126,11 @@ def convert_to_vector_id_pairs(feature_matrix: np.array, report_ids: List[int]) 
     return data
 
 
-def shuffle_and_split_into_training_validation_sets(data: List[Tuple[np.array, int]],
-                                                    train_ratio: float = 0.9) -> Tuple[List[np.array], List[np.array]]:
+def shuffle_and_split_into_sets(data: List[Tuple[np.array, int]],
+                                ratio: float = 0.9) -> Tuple[List[np.array], List[np.array]]:
     random.shuffle(data)
     number_of_samples = len(data)
-    train_samples = int(train_ratio * number_of_samples)
+    train_samples = int(ratio * number_of_samples)
     return data[:train_samples], data[train_samples:]
 
 
@@ -145,12 +145,13 @@ if __name__ == "__main__":
     local_dir = './data'
 
     compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
-    dimensionality_reduction = True
+    dimensionality_reduction = False
 
     if compute_features:
         # download the file
-        path_to_downloaded_zip_file = download_file('https://www.fire.tc.faa.gov/zip/MasterModelVersion3DDeliverable.zip',
-                                                    local_dir)
+        path_to_downloaded_zip_file = download_file(
+            'https://www.fire.tc.faa.gov/zip/MasterModelVersion3DDeliverable.zip',
+            local_dir)
         # unzip the file
         path_to_file = unzip_file(path_to_downloaded_zip_file, local_dir)
 
@@ -173,6 +174,8 @@ if __name__ == "__main__":
         filtered_df.to_csv(f'{local_dir}/feature_data.csv')
     else:
         filtered_df = pd.read_csv(f'{local_dir}/feature_data.csv')
+        # we have to do this because otherwise, this column is loaded in as a string :(
+        filtered_df['lemmatized_filtered'] = filtered_df['lemmatized_filtered'].parallel_apply(literal_eval)
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
@@ -192,19 +195,25 @@ if __name__ == "__main__":
     pairs = convert_to_vector_id_pairs(feature_matrix, report_ids)
 
     # shuffle and split the data
-    train, validation = shuffle_and_split_into_training_validation_sets(pairs)
+    train, validation = shuffle_and_split_into_sets(pairs)
 
     # classification step
-    _LOGGER.info("Training a kNN classifier")
-    knn = KNeighborsClassifier(1)
-    train_data, train_labels = list(zip(*train))
-    validation_data, validation_labels = list(zip(*validation))
+    train_data, train_report_ids = list(zip(*train))
+    train_data = np.array(train_data)
+    for feature_vector, report_id_of_document in validation:
+        pairwise_distances = linear_kernel(np.expand_dims(feature_vector, 0), np.array(train_data)).flatten()
+        sorted_distances = np.argsort(pairwise_distances)
+        minimum_distance = sorted_distances[-1]
+        report_id_of_closest_document = train_report_ids[minimum_distance]
+        # for debugging
+        keys_of_interest = ['Text', 'Location on sircraft of the defective or malfunctioning part',
+                            'Text reflecting condition of failed part',
+                            '1 A = Air Carrier   G = General Aviation',
+                            'Segment Code 1 = aircraft, 2 = engine, 3 = propeller, 4 = component',
+                            'Precautionary Measures Taken']
+        actual_record = filtered_df[filtered_df['Index No.\n (Do not alter or delete)'] == report_id_of_document][keys_of_interest].to_dict(orient='records')
+        closest_record = filtered_df[
+            filtered_df['Index No.\n (Do not alter or delete)'] == report_id_of_closest_document][keys_of_interest].to_dict(orient='records')
 
-    knn.fit(train_data, train_labels)
-    predictions = knn.predict(validation_data)
-    for n, predicted_report_id in enumerate(predictions):
-        ground_truth_report_id = validation_labels[n]
-        print("Ground Truth: ", filtered_df[filtered_df['Index No.\n (Do not alter or delete)'] == ground_truth_report_id].to_dict(orient='records'))
-        print("Prediction: ", filtered_df[filtered_df['Index No.\n (Do not alter or delete)'] == predicted_report_id].to_dict(orient='records'))
-
-
+        print(actual_record)
+        print(closest_record)
