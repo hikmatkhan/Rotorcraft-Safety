@@ -207,22 +207,22 @@ if __name__ == "__main__":
     X_train, X_test, y_train, y_test = train_test_split(feature_matrix, labels, test_size=0.1, random_state=42)
 
     inputs = keras.Input(shape=(num_features,))
-    layer_1 = layers.Dense(512, activation="relu")(inputs)
-    layer_2 = layers.Dense(256, activation="relu")(layer_1)
-    layer_3 = layers.Dense(128, activation="relu")(layer_2)
-    layer_4 = layers.Dense(64, activation="relu")(layer_3)
-    outputs = layers.Dense(num_labels, activation="softmax")(layer_4)
+    layer_1 = layers.Dense(1024, activation="relu")(inputs)
+    layer_2 = layers.Dense(512, activation="relu")(layer_1)
+    layer_3 = layers.Dense(256, activation="relu")(layer_2)
+    layer_4 = layers.Dense(128, activation="relu")(layer_3)
+    layer_5 = layers.Dense(64, activation="relu")(layer_4)
+    outputs = layers.Dense(num_labels, activation="softmax")(layer_5)
 
     model = keras.Model(inputs=inputs, outputs=outputs)
+    _LOGGER.info(model.summary())
     model.compile(
         optimizer=keras.optimizers.Adam(),  # Optimizer
-        # Loss function to minimize
-        loss=keras.losses.CategoricalCrossentropy(),
-        # List of metrics to monitor
-        metrics=[keras.metrics.Accuracy()],
+        loss=keras.losses.CategoricalCrossentropy(),  # Loss function to minimize
+        metrics=[keras.metrics.Accuracy()]  # List of metrics to monitor
     )
     model.fit(X_train, y_train,
-              validation_data=(X_test, y_test), shuffle=True, epochs=200, batch_size=64,
+              validation_data=(X_test, y_test), shuffle=True, epochs=300, batch_size=64,
               callbacks=[CSVLogger('./results.csv')])
     model.save('model')
 
