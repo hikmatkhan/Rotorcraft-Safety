@@ -11,6 +11,7 @@ openpyxl = "*"
 nltk = "*"
 scikit-learn = "*"
 pandarallel = "*"
+tensorflow = "==2.4.0"
 
 [dev-packages]
 

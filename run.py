@@ -3,7 +3,7 @@ import zipfile
 from ast import literal_eval
 from collections import Counter
 import random
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 import nltk
 import numpy as np
@@ -16,12 +16,15 @@ from sklearn.decomposition import PCA
 from sklearn.feature_extraction import DictVectorizer
 from pandarallel import pandarallel
 from sklearn.feature_extraction.text import TfidfTransformer
-from sklearn.metrics.pairwise import linear_kernel
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.model_selection import train_test_split
+from tensorflow import keras, one_hot
+from tensorflow.keras import layers
+from tensorflow.keras.callbacks import CSVLogger
 
 _LOGGER = structlog.get_logger(__file__)
 pandarallel.initialize()
 HEADER_COLUMN = 12
+LABEL_COLUMN = 'False Warning'
 
 
 def download_file(url: str, local_dir: str = '.', local_filename: str = '') -> str:
@@ -112,22 +115,16 @@ def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str], List[int]]:
+def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str]]:
     _LOGGER.info("Converting text to feature matrix")
     df['counter'] = df['lemmatized_filtered'].parallel_apply(lambda x: Counter(x))
     vectorizer = DictVectorizer(sparse=False)
     sparse_matrix = vectorizer.fit_transform(df['counter'])
-    return sparse_matrix, vectorizer.get_feature_names(), df['Index No.\n (Do not alter or delete)']
+    return sparse_matrix, vectorizer.get_feature_names()
 
 
-def convert_to_vector_id_pairs(feature_matrix: np.array, report_ids: List[int]) -> List[Tuple[np.array, int]]:
-    feature_vectors = list(feature_matrix)
-    data = list(zip(feature_vectors, report_ids))
-    return data
-
-
-def shuffle_and_split_into_sets(data: List[Tuple[np.array, int]],
-                                ratio: float = 0.9) -> Tuple[List[np.array], List[np.array]]:
+def shuffle_and_split_into_training_and_validation_sets(data: List[Tuple[np.array, int]],
+                                                        ratio: float = 0.9) -> Tuple[List[np.array], List[np.array]]:
     random.shuffle(data)
     number_of_samples = len(data)
     train_samples = int(ratio * number_of_samples)
@@ -139,6 +136,13 @@ def compute_term_frequency_inverse_document_frequency(feature_matrix: np.array) 
     ifd_matrix = transformer.fit_transform(feature_matrix)
     ifd_matrix = np.squeeze(np.array([x.toarray() for x in ifd_matrix]))
     return ifd_matrix
+
+
+def extract_and_encode_labels(df: pd.DataFrame) -> Tuple[np.array, Dict[str, int]]:
+    label_mapping = dict((label, i) for i, label in enumerate(df[LABEL_COLUMN].unique()))
+    labels = list(df[LABEL_COLUMN].map(label_mapping))
+    labels = one_hot(np.array(labels), len(label_mapping))
+    return np.array(labels), label_mapping
 
 
 if __name__ == "__main__":
@@ -178,9 +182,13 @@ if __name__ == "__main__":
         # we have to do this because otherwise, this column is loaded in as a string :(
         filtered_df['lemmatized_filtered'] = filtered_df['lemmatized_filtered'].parallel_apply(literal_eval)
 
+    count_of_null_labels = len(filtered_df[filtered_df[LABEL_COLUMN].isnull()])
+    filtered_df = filtered_df.dropna(subset=[LABEL_COLUMN])
+    _LOGGER.info(f"Dropped {count_of_null_labels} records because {LABEL_COLUMN} was null or NaN")
+
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    feature_matrix, feature_names, report_ids = vectorize(filtered_df)
+    feature_matrix, feature_names = vectorize(filtered_df)
 
     # apply term frequency–inverse document frequency (tf-idf)
     feature_matrix = compute_term_frequency_inverse_document_frequency(feature_matrix)
@@ -190,31 +198,37 @@ if __name__ == "__main__":
         num_components = 500
         _LOGGER.info(f"Performing dimensionality reduction using PCA. Reducing to {num_components}.")
         pca = PCA(n_components=num_components)
-        sparse_matrix = pca.fit_transform(feature_matrix)
+        feature_matrix = pca.fit_transform(feature_matrix)
 
-    # split the data up into (feature_vector, report_id) pairs
-    pairs = convert_to_vector_id_pairs(feature_matrix, report_ids)
+    labels, label_mapping = extract_and_encode_labels(filtered_df)
+    num_labels = len(label_mapping)
+    num_features = feature_matrix.shape[1]
 
-    # shuffle and split the data
-    train, validation = shuffle_and_split_into_sets(pairs)
+    X_train, X_test, y_train, y_test = train_test_split(feature_matrix, labels, test_size=0.1, random_state=42)
 
-    # classification step
-    train_data, train_report_ids = list(zip(*train))
-    train_data = np.array(train_data)
-    for feature_vector, report_id_of_document in validation:
-        pairwise_distances = linear_kernel(np.expand_dims(feature_vector, 0), train_data).flatten()
-        sorted_distances = np.argsort(pairwise_distances)
-        minimum_distance = sorted_distances[-1]
-        report_id_of_closest_document = train_report_ids[minimum_distance]
-        # for debugging
-        keys_of_interest = ['Text', 'Location on sircraft of the defective or malfunctioning part',
-                            'Text reflecting condition of failed part',
-                            '1 A = Air Carrier   G = General Aviation',
-                            'Segment Code 1 = aircraft, 2 = engine, 3 = propeller, 4 = component',
-                            'Precautionary Measures Taken']
-        actual_record = filtered_df[filtered_df['Index No.\n (Do not alter or delete)'] == report_id_of_document][keys_of_interest].to_dict(orient='records')
-        closest_record = filtered_df[
-            filtered_df['Index No.\n (Do not alter or delete)'] == report_id_of_closest_document][keys_of_interest].to_dict(orient='records')
+    inputs = keras.Input(shape=(num_features,))
+    layer_1 = layers.Dense(512, activation="relu")(inputs)
+    layer_2 = layers.Dense(256, activation="relu")(layer_1)
+    layer_3 = layers.Dense(128, activation="relu")(layer_2)
+    layer_4 = layers.Dense(64, activation="relu")(layer_3)
+    outputs = layers.Dense(num_labels, activation="softmax")(layer_4)
 
-        print(actual_record)
-        print(closest_record)
+    model = keras.Model(inputs=inputs, outputs=outputs)
+    model.compile(
+        optimizer=keras.optimizers.Adam(),  # Optimizer
+        # Loss function to minimize
+        loss=keras.losses.CategoricalCrossentropy(),
+        # List of metrics to monitor
+        metrics=[keras.metrics.Accuracy()],
+    )
+    model.fit(X_train, y_train,
+              validation_data=(X_test, y_test), shuffle=True, epochs=200, batch_size=64,
+              callbacks=[CSVLogger('./results.csv')])
+    model.save('model')
+
+
+
+
+
+
+
