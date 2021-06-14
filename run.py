@@ -1,8 +1,6 @@
 import os
 import zipfile
 from ast import literal_eval
-from collections import Counter
-import random
 from typing import List, Tuple, Dict
 
 import nltk
@@ -13,13 +11,13 @@ import structlog
 from nltk import RegexpTokenizer, WordNetLemmatizer
 from nltk.corpus import stopwords
 from sklearn.decomposition import PCA
-from sklearn.feature_extraction import DictVectorizer
 from pandarallel import pandarallel
-from sklearn.feature_extraction.text import TfidfTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from tensorflow import keras, one_hot
 from tensorflow.keras import layers
 from tensorflow.keras.callbacks import CSVLogger
+from tensorflow.keras.layers import ReLU
 
 _LOGGER = structlog.get_logger(__file__)
 pandarallel.initialize()
@@ -115,27 +113,12 @@ def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def vectorize(df: pd.DataFrame) -> Tuple[np.array, List[str]]:
+def vectorize(df: pd.DataFrame, **kwargs) -> Tuple[np.array, List[str]]:
     _LOGGER.info("Converting text to feature matrix")
-    df['counter'] = df['lemmatized_filtered'].parallel_apply(lambda x: Counter(x))
-    vectorizer = DictVectorizer(sparse=False)
-    sparse_matrix = vectorizer.fit_transform(df['counter'])
-    return sparse_matrix, vectorizer.get_feature_names()
-
-
-def shuffle_and_split_into_training_and_validation_sets(data: List[Tuple[np.array, int]],
-                                                        ratio: float = 0.9) -> Tuple[List[np.array], List[np.array]]:
-    random.shuffle(data)
-    number_of_samples = len(data)
-    train_samples = int(ratio * number_of_samples)
-    return data[:train_samples], data[train_samples:]
-
-
-def compute_term_frequency_inverse_document_frequency(feature_matrix: np.array) -> np.array:
-    transformer = TfidfTransformer(smooth_idf=False)
-    ifd_matrix = transformer.fit_transform(feature_matrix)
-    ifd_matrix = np.squeeze(np.array([x.toarray() for x in ifd_matrix]))
-    return ifd_matrix
+    vectorizer = TfidfVectorizer(**kwargs)
+    sparse_matrix = vectorizer.fit_transform(df['Text'])
+    feature_matrix = sparse_matrix.todense()
+    return feature_matrix, vectorizer.get_feature_names()
 
 
 def extract_and_encode_labels(df: pd.DataFrame) -> Tuple[np.array, Dict[str, int]]:
@@ -190,9 +173,6 @@ if __name__ == "__main__":
     # where n = number of documents, m = number of words in vocabulary
     feature_matrix, feature_names = vectorize(filtered_df)
 
-    # apply term frequency–inverse document frequency (tf-idf)
-    feature_matrix = compute_term_frequency_inverse_document_frequency(feature_matrix)
-
     # optionally apply dimensionality reduction (PCA)
     if dimensionality_reduction:
         num_components = 500
@@ -204,14 +184,14 @@ if __name__ == "__main__":
     num_labels = len(label_mapping)
     num_features = feature_matrix.shape[1]
 
-    X_train, X_test, y_train, y_test = train_test_split(feature_matrix, labels, test_size=0.1, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(feature_matrix, labels, test_size=0.05, random_state=1)
 
     inputs = keras.Input(shape=(num_features,))
-    layer_1 = layers.Dense(1024, activation="relu")(inputs)
-    layer_2 = layers.Dense(512, activation="relu")(layer_1)
-    layer_3 = layers.Dense(256, activation="relu")(layer_2)
-    layer_4 = layers.Dense(128, activation="relu")(layer_3)
-    layer_5 = layers.Dense(64, activation="relu")(layer_4)
+    layer_1 = layers.Dense(1024, activation=ReLU())(inputs)
+    layer_2 = layers.Dense(512, activation=ReLU())(layer_1)
+    layer_3 = layers.Dense(256, activation=ReLU())(layer_2)
+    layer_4 = layers.Dense(128, activation=ReLU())(layer_3)
+    layer_5 = layers.Dense(64, activation=ReLU())(layer_4)
     outputs = layers.Dense(num_labels, activation="softmax")(layer_5)
 
     model = keras.Model(inputs=inputs, outputs=outputs)
@@ -222,7 +202,7 @@ if __name__ == "__main__":
         metrics=[keras.metrics.Accuracy()]  # List of metrics to monitor
     )
     model.fit(X_train, y_train,
-              validation_data=(X_test, y_test), shuffle=True, epochs=300, batch_size=64,
+              validation_data=(X_test, y_test), shuffle=True, epochs=200, batch_size=64,
               callbacks=[CSVLogger('./results.csv')])
     model.save('model')
 
