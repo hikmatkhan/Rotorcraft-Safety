@@ -12,6 +12,7 @@ nltk = "*"
 scikit-learn = "*"
 pandarallel = "*"
 tensorflow = "==2.2.0"
+matplotlib = "*"
 
 [dev-packages]
 

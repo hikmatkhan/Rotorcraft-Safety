@@ -171,7 +171,7 @@ if __name__ == "__main__":
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    feature_matrix, feature_names = vectorize(filtered_df)
+    feature_matrix, feature_names = vectorize(filtered_df, min_df=0.001)
 
     # optionally apply dimensionality reduction (PCA)
     if dimensionality_reduction:
@@ -186,13 +186,17 @@ if __name__ == "__main__":
 
     X_train, X_test, y_train, y_test = train_test_split(feature_matrix, labels, test_size=0.05, random_state=1)
 
+    _LOGGER.info(f"Training on {X_train.shape[0]} samples, validating on {X_test.shape[0]} samples.")
+    _LOGGER.info(f"Number of features: {num_features}")
     inputs = keras.Input(shape=(num_features,))
-    layer_1 = layers.Dense(1024, activation=ReLU())(inputs)
-    layer_2 = layers.Dense(512, activation=ReLU())(layer_1)
-    layer_3 = layers.Dense(256, activation=ReLU())(layer_2)
-    layer_4 = layers.Dense(128, activation=ReLU())(layer_3)
-    layer_5 = layers.Dense(64, activation=ReLU())(layer_4)
-    outputs = layers.Dense(num_labels, activation="softmax")(layer_5)
+    layer_1 = layers.Dense(4096, activation=ReLU())(inputs)
+    layer_2 = layers.Dense(2048, activation=ReLU())(layer_1)
+    layer_3 = layers.Dense(1024, activation=ReLU())(layer_2)
+    layer_4 = layers.Dense(512, activation=ReLU())(layer_3)
+    layer_5 = layers.Dense(256, activation=ReLU())(layer_4)
+    layer_6 = layers.Dense(128, activation=ReLU())(layer_5)
+    layer_7 = layers.Dense(64, activation=ReLU())(layer_6)
+    outputs = layers.Dense(num_labels, activation="softmax")(layer_7)
 
     model = keras.Model(inputs=inputs, outputs=outputs)
     _LOGGER.info(model.summary())
