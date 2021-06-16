@@ -200,7 +200,7 @@ if __name__ == "__main__":
     model = keras.Model(inputs=inputs, outputs=outputs)
     _LOGGER.info(model.summary())
     model.compile(
-        optimizer=keras.optimizers.Adam(),  # Optimizer
+        optimizer=keras.optimizers.Adamax(),  # Optimizer
         loss=keras.losses.CategoricalCrossentropy(),  # Loss function to minimize
         metrics=[keras.metrics.Accuracy()]  # List of metrics to monitor
     )
