@@ -132,7 +132,6 @@ if __name__ == "__main__":
     local_dir = './data'
 
     compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
-    dimensionality_reduction = False
 
     if compute_features:
         # download the file
@@ -172,13 +171,6 @@ if __name__ == "__main__":
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
     feature_matrix, feature_names = vectorize(filtered_df, min_df=0.001)
-
-    # optionally apply dimensionality reduction (PCA)
-    if dimensionality_reduction:
-        num_components = 500
-        _LOGGER.info(f"Performing dimensionality reduction using PCA. Reducing to {num_components}.")
-        pca = PCA(n_components=num_components)
-        feature_matrix = pca.fit_transform(feature_matrix)
 
     labels, label_mapping = extract_and_encode_labels(filtered_df)
     num_labels = len(label_mapping)
