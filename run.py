@@ -10,8 +10,8 @@ import requests
 import structlog
 from nltk import RegexpTokenizer, WordNetLemmatizer
 from nltk.corpus import stopwords
-from sklearn.decomposition import PCA
 from pandarallel import pandarallel
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from tensorflow import keras, one_hot
@@ -132,6 +132,7 @@ if __name__ == "__main__":
     local_dir = './data'
 
     compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
+    model_type = "rf"
 
     if compute_features:
         # download the file
@@ -180,26 +181,37 @@ if __name__ == "__main__":
 
     _LOGGER.info(f"Training on {X_train.shape[0]} samples, validating on {X_test.shape[0]} samples.")
     _LOGGER.info(f"Number of features: {num_features}")
-    inputs = keras.Input(shape=(num_features,))
-    layer_1 = layers.Dense(8192, activation=ReLU())(inputs)
-    layer_2 = layers.Dense(2048, activation=ReLU())(layer_1)
-    layer_3 = layers.Dense(512, activation=ReLU())(layer_2)
-    layer_4 = layers.Dense(128, activation=ReLU())(layer_3)
-    layer_5 = layers.Dense(32, activation=ReLU())(layer_4)
-    layer_6 = layers.Dense(8, activation=ReLU())(layer_5)
-    outputs = layers.Dense(num_labels, activation="softmax")(layer_6)
 
-    model = keras.Model(inputs=inputs, outputs=outputs)
-    _LOGGER.info(model.summary())
-    model.compile(
-        optimizer=keras.optimizers.Adamax(),  # Optimizer
-        loss=keras.losses.CategoricalCrossentropy(),  # Loss function to minimize
-        metrics=[keras.metrics.Accuracy()]  # List of metrics to monitor
-    )
-    model.fit(X_train, y_train,
-              validation_data=(X_test, y_test), shuffle=True, epochs=200, batch_size=64,
-              callbacks=[CSVLogger('./results.csv')])
-    model.save('model')
+    if model_type == "mlp":
+        inputs = keras.Input(shape=(num_features,))
+        layer_1 = layers.Dense(8192, activation=ReLU())(inputs)
+        layer_2 = layers.Dense(2048, activation=ReLU())(layer_1)
+        layer_3 = layers.Dense(512, activation=ReLU())(layer_2)
+        layer_4 = layers.Dense(128, activation=ReLU())(layer_3)
+        layer_5 = layers.Dense(32, activation=ReLU())(layer_4)
+        layer_6 = layers.Dense(8, activation=ReLU())(layer_5)
+        outputs = layers.Dense(num_labels, activation="softmax")(layer_6)
+
+        model = keras.Model(inputs=inputs, outputs=outputs)
+        _LOGGER.info(model.summary())
+        model.compile(
+            optimizer=keras.optimizers.Adamax(),  # Optimizer
+            loss=keras.losses.CategoricalCrossentropy(),  # Loss function to minimize
+            metrics=[keras.metrics.Accuracy()]  # List of metrics to monitor
+        )
+        model.fit(X_train, y_train,
+                  validation_data=(X_test, y_test), shuffle=True, epochs=200, batch_size=64,
+                  callbacks=[CSVLogger('./results.csv')])
+        model.save('model')
+    elif model_type == "rf":
+        rf = RandomForestClassifier(n_jobs=-1)
+        y_train = np.argmax(y_train, axis=1)
+        y_test = np.argmax(y_test, axis=1)
+        rf.fit(X_train, y_train)
+        training_acc = rf.score(X_train, y_train)
+        validation_acc = rf.score(X_test, y_test)
+        _LOGGER.info(f"Training accuracy: {training_acc}")
+        _LOGGER.info(f"Validation accuracy: {validation_acc}")
 
 
 
