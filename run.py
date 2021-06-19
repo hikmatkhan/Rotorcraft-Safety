@@ -88,31 +88,6 @@ def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def tokenize(df: pd.DataFrame) -> pd.DataFrame:
-    _LOGGER.info("Tokenizing text")
-    tokenizer = RegexpTokenizer(r'\w+')
-    df['tokenized'] = df['Text'].apply(lambda x: tokenizer.tokenize(x))
-    return df
-
-
-def lemmatize(df: pd.DataFrame) -> pd.DataFrame:
-    _LOGGER.info("Lemmatizing text")
-    nltk.download('wordnet')
-    lemmatiser = WordNetLemmatizer()
-    df['lemmatized'] = df['tokenized'].apply(lambda tokens:
-                                             [lemmatiser.lemmatize(token.lower(), pos='v') for token in tokens])
-    return df
-
-
-def remove_stop_words(df: pd.DataFrame) -> pd.DataFrame:
-    _LOGGER.info("Removing stop words from text")
-    nltk.download('stopwords')
-    df['lemmatized_filtered'] = df['lemmatized'].parallel_apply(lambda lemmas:
-                                                                [lemma for lemma in lemmas if
-                                                                 lemma not in stopwords.words('english')])
-    return df
-
-
 def vectorize(df: pd.DataFrame, **kwargs) -> Tuple[np.array, List[str]]:
     _LOGGER.info("Converting text to feature matrix")
     vectorizer = TfidfVectorizer(**kwargs)
@@ -146,34 +121,23 @@ if __name__ == "__main__":
         df = load_data(path_to_file)
 
         # clean up the dataframe (remove whitespace from columns and entries, remove rows with no data, etc.)
-        sanitized_df = sanitize_df(df)
-
-        # tokenize the text column in the dataframe
-        tokenized_df = tokenize(sanitized_df)
-
-        # lemmatize the tokens in the dataframe
-        lemmatized_df = lemmatize(tokenized_df)
-
-        # remove english stopwords from lemmatized tokens
-        filtered_df = remove_stop_words(lemmatized_df)
+        df = sanitize_df(df)
 
         # save preprocessed data to save time for future runs
-        filtered_df.to_csv(f'{local_dir}/feature_data.csv')
+        df.to_csv(f'{local_dir}/feature_data.csv')
     else:
-        # don't go through the hassle of of preprocessing if we already have the preprocessed data saved
-        filtered_df = pd.read_csv(f'{local_dir}/feature_data.csv')
-        # we have to do this because otherwise, this column is loaded in as a string :(
-        filtered_df['lemmatized_filtered'] = filtered_df['lemmatized_filtered'].parallel_apply(literal_eval)
+        # don't go through the hassle of preprocessing if we already have the preprocessed data saved
+        df = pd.read_csv(f'{local_dir}/feature_data.csv')
 
-    count_of_null_labels = len(filtered_df[filtered_df[LABEL_COLUMN].isnull()])
-    filtered_df = filtered_df.dropna(subset=[LABEL_COLUMN])
+    count_of_null_labels = len(df[df[LABEL_COLUMN].isnull()])
+    df = df.dropna(subset=[LABEL_COLUMN])
     _LOGGER.info(f"Dropped {count_of_null_labels} records because {LABEL_COLUMN} was null or NaN")
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    feature_matrix, feature_names = vectorize(filtered_df, min_df=0.001)
+    feature_matrix, feature_names = vectorize(df, min_df=0.001)
 
-    labels, label_mapping = extract_and_encode_labels(filtered_df)
+    labels, label_mapping = extract_and_encode_labels(df)
     num_labels = len(label_mapping)
     num_features = feature_matrix.shape[1]
 
