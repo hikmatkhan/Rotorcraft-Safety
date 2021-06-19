@@ -8,17 +8,19 @@ import numpy as np
 import pandas as pd
 import requests
 import structlog
-from nltk import RegexpTokenizer, WordNetLemmatizer
-from nltk.corpus import stopwords
+import matplotlib.pyplot as plt
 from pandarallel import pandarallel
+from sklearn import tree
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
 from tensorflow import keras, one_hot
 from tensorflow.keras import layers
 from tensorflow.keras.callbacks import CSVLogger
 from tensorflow.keras.layers import ReLU
 
+plt.rcParams.update({'figure.figsize': (16.0, 12.0)})
 _LOGGER = structlog.get_logger(__file__)
 pandarallel.initialize()
 HEADER_COLUMN = 12
@@ -107,7 +109,7 @@ if __name__ == "__main__":
     local_dir = './data'
 
     compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
-    model_type = "rf"
+    model_type = "knn"
 
     if compute_features:
         # download the file
@@ -135,7 +137,7 @@ if __name__ == "__main__":
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    feature_matrix, feature_names = vectorize(df, min_df=0.001)
+    feature_matrix, feature_names = vectorize(df, min_df=0.001, use_idf=False, norm='l1')
 
     labels, label_mapping = extract_and_encode_labels(df)
     num_labels = len(label_mapping)
@@ -174,8 +176,18 @@ if __name__ == "__main__":
         rf.fit(X_train, y_train)
         training_acc = rf.score(X_train, y_train)
         validation_acc = rf.score(X_test, y_test)
-        _LOGGER.info(f"Training accuracy: {training_acc}")
-        _LOGGER.info(f"Validation accuracy: {validation_acc}")
+        _LOGGER.info(f"Training accuracy with Random Forest: {training_acc}")
+        _LOGGER.info(f"Validation accuracy with Random Forest: {validation_acc}")
+    elif model_type == "knn":
+        knn = KNeighborsClassifier(n_jobs=-1)
+        y_train = np.argmax(y_train, axis=1)
+        y_test = np.argmax(y_test, axis=1)
+        knn.fit(X_train, y_train)
+        training_acc = knn.score(X_train, y_train)
+        validation_acc = knn.score(X_test, y_test)
+        _LOGGER.info(f"Training accuracy with kNN: {training_acc}")
+        _LOGGER.info(f"Validation accuracy with kNN: {validation_acc}")
+
 
 
 
