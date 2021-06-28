@@ -166,11 +166,3 @@ if __name__ == "__main__":
         validation_acc = knn.score(X_test, y_test)
         _LOGGER.info(f"Training accuracy with kNN: {training_acc}")
         _LOGGER.info(f"Validation accuracy with kNN: {validation_acc}")
-
-
-
-
-
-
-
-
