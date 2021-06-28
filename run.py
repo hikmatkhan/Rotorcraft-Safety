@@ -109,8 +109,8 @@ if __name__ == "__main__":
         # don't go through the hassle of preprocessing if we already have the preprocessed data saved
         df = pd.read_csv(f'{local_dir}/feature_data.csv')
 
-    df = df.dropna(subset=['Text'])
-    count_of_no_text = len(df[df[LABEL_COLUMN].isnull()])
+    count_of_no_text = len(df[df[TEXT_COLUMN].isnull()])
+    df = df.dropna(subset=[TEXT_COLUMN])
     _LOGGER.info(f"Dropped {count_of_no_text} records because {TEXT_COLUMN} was null or NaN")
 
     count_of_null_labels = len(df[df[LABEL_COLUMN].isnull()])
