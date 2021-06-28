@@ -1,16 +1,12 @@
 import os
 import zipfile
-from ast import literal_eval
 from typing import List, Tuple, Dict
 
-import nltk
 import numpy as np
 import pandas as pd
 import requests
 import structlog
 import matplotlib.pyplot as plt
-from pandarallel import pandarallel
-from sklearn import tree
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
@@ -22,9 +18,9 @@ from tensorflow.keras.layers import ReLU
 
 plt.rcParams.update({'figure.figsize': (16.0, 12.0)})
 _LOGGER = structlog.get_logger(__file__)
-pandarallel.initialize()
 HEADER_COLUMN = 12
 LABEL_COLUMN = 'False Warning'
+TEXT_COLUMN = 'Text'
 
 
 def download_file(url: str, local_dir: str = '.', local_filename: str = '') -> str:
@@ -76,24 +72,10 @@ def load_data(path_to_file: str) -> pd.DataFrame:
     return df
 
 
-def sanitize_df(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Cleans up column names and elements in a dataframe by stripping out whitespaces/delimiters,
-    dropping rows with null text, etc.
-    :param df: dataframe we're operating on/cleaning
-    :return: dataframe with cleaned up columns and elements
-    """
-    _LOGGER.info("Cleaning up dataframe")
-    df = df.dropna(subset=['Text'])
-    df = df.rename(columns=lambda x: x.strip() if isinstance(x, str) else x)
-    df = df.parallel_applymap(lambda x: x.strip() if isinstance(x, str) else x)
-    return df
-
-
 def vectorize(df: pd.DataFrame, **kwargs) -> Tuple[np.array, List[str]]:
     _LOGGER.info("Converting text to feature matrix")
     vectorizer = TfidfVectorizer(**kwargs)
-    sparse_matrix = vectorizer.fit_transform(df['Text'])
+    sparse_matrix = vectorizer.fit_transform(df[TEXT_COLUMN])
     feature_matrix = sparse_matrix.todense()
     return feature_matrix, vectorizer.get_feature_names()
 
@@ -101,7 +83,6 @@ def vectorize(df: pd.DataFrame, **kwargs) -> Tuple[np.array, List[str]]:
 def extract_and_encode_labels(df: pd.DataFrame) -> Tuple[np.array, Dict[str, int]]:
     label_mapping = dict((label, i) for i, label in enumerate(df[LABEL_COLUMN].unique()))
     labels = list(df[LABEL_COLUMN].map(label_mapping))
-    labels = one_hot(np.array(labels), len(label_mapping))
     return np.array(labels), label_mapping
 
 
@@ -122,14 +103,15 @@ if __name__ == "__main__":
         # load the file into a Pandas dataframe
         df = load_data(path_to_file)
 
-        # clean up the dataframe (remove whitespace from columns and entries, remove rows with no data, etc.)
-        df = sanitize_df(df)
-
         # save preprocessed data to save time for future runs
         df.to_csv(f'{local_dir}/feature_data.csv')
     else:
         # don't go through the hassle of preprocessing if we already have the preprocessed data saved
         df = pd.read_csv(f'{local_dir}/feature_data.csv')
+
+    df = df.dropna(subset=['Text'])
+    count_of_no_text = len(df[df[LABEL_COLUMN].isnull()])
+    _LOGGER.info(f"Dropped {count_of_no_text} records because {TEXT_COLUMN} was null or NaN")
 
     count_of_null_labels = len(df[df[LABEL_COLUMN].isnull()])
     df = df.dropna(subset=[LABEL_COLUMN])
@@ -137,7 +119,7 @@ if __name__ == "__main__":
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
-    feature_matrix, feature_names = vectorize(df, min_df=0.001, use_idf=False, norm='l1')
+    feature_matrix, feature_names = vectorize(df, min_df=0.001)
 
     labels, label_mapping = extract_and_encode_labels(df)
     num_labels = len(label_mapping)
@@ -149,6 +131,7 @@ if __name__ == "__main__":
     _LOGGER.info(f"Number of features: {num_features}")
 
     if model_type == "mlp":
+        labels = one_hot(np.array(labels), len(label_mapping))
         inputs = keras.Input(shape=(num_features,))
         layer_1 = layers.Dense(8192, activation=ReLU())(inputs)
         layer_2 = layers.Dense(2048, activation=ReLU())(layer_1)
@@ -171,17 +154,13 @@ if __name__ == "__main__":
         model.save('model')
     elif model_type == "rf":
         rf = RandomForestClassifier(n_jobs=-1)
-        y_train = np.argmax(y_train, axis=1)
-        y_test = np.argmax(y_test, axis=1)
         rf.fit(X_train, y_train)
         training_acc = rf.score(X_train, y_train)
         validation_acc = rf.score(X_test, y_test)
         _LOGGER.info(f"Training accuracy with Random Forest: {training_acc}")
         _LOGGER.info(f"Validation accuracy with Random Forest: {validation_acc}")
     elif model_type == "knn":
-        knn = KNeighborsClassifier(n_jobs=-1)
-        y_train = np.argmax(y_train, axis=1)
-        y_test = np.argmax(y_test, axis=1)
+        knn = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
         knn.fit(X_train, y_train)
         training_acc = knn.score(X_train, y_train)
         validation_acc = knn.score(X_test, y_test)
