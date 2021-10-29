@@ -1,27 +1,32 @@
 import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# For mutliple devices (GPUs: 4, 5, 6, 7)
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+
+import os
 import zipfile
 from typing import List, Tuple, Dict
-
 import numpy as np
 import pandas as pd
 import requests
-import structlog
 import matplotlib.pyplot as plt
+import sklearn
+from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import confusion_matrix
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
-from tensorflow import keras, one_hot
-from tensorflow.keras import layers
-from tensorflow.keras.callbacks import CSVLogger
-from tensorflow.keras.layers import ReLU
+from sklearn.preprocessing import OneHotEncoder
+print("NP:", np.__version__)
+print("PD:", pd.__version__)
+print("Request:", requests.__version__)
+print("SKLearn:", sklearn.__version__)
 
 plt.rcParams.update({'figure.figsize': (16.0, 12.0)})
-_LOGGER = structlog.get_logger(__file__)
 HEADER_COLUMN = 12
 LABEL_COLUMN = 'False Warning'
 TEXT_COLUMN = 'Text'
-
 
 def download_file(url: str, local_dir: str = '.', local_filename: str = '') -> str:
     """
@@ -35,15 +40,15 @@ def download_file(url: str, local_dir: str = '.', local_filename: str = '') -> s
     os.makedirs(f'{local_dir}', exist_ok=True)
     local_filename = local_filename if local_filename else url.split('/')[-1]
     if os.path.exists(f'{local_dir}/{local_filename}'):
-        _LOGGER.info(f'{local_dir}/{local_filename} already exists. Skipping download.')
+        print("{0}/{1} already exists. Skipping download.".format(local_dir, local_filename))
     else:
-        _LOGGER.info(f"Downloading file from {url} to {local_dir}/{local_filename}.")
+        print("Downloading file from {0} to {1}/{2}.".format(url, local_dir, local_filename))
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
             with open(f'./{local_dir}/{local_filename}', 'wb') as f:
                 for chunk in r.iter_content(chunk_size=128):
                     f.write(chunk)
-        _LOGGER.info(f"Finished saving file from {url} to {local_dir}/{local_filename}.")
+        print("Finished saving file from {0} to {1}/{2}.".format(url, local_dir, local_filename))
     return f'{local_dir}/{local_filename}'
 
 
@@ -65,15 +70,14 @@ def load_data(path_to_file: str) -> pd.DataFrame:
     :param path_to_file: path to excel file
     :return: Pandas dataframe containing contents of excel spreadsheet
     """
-    _LOGGER.info(f"Started loading the excel data from {path_to_file} into a dataframe - this may take a while. "
-                 f"You may want to grab a coffee.")
+    print("Started loading the excel data from {0} into a datafram - this may take a while. You may want to grab a coffee.".format(path_to_file))
     df = pd.read_excel(path_to_file, engine='openpyxl', header=HEADER_COLUMN)
-    _LOGGER.info(f"Finished loading the excel data from {path_to_file} into a dataframe.")
+    print("Finished loading the excel data from {0} into a dataframe.".format(path_to_file))
     return df
 
 
 def vectorize(df: pd.DataFrame, **kwargs) -> Tuple[np.array, List[str]]:
-    _LOGGER.info("Converting text to feature matrix")
+    print("Converting text to feature matrix")
     vectorizer = TfidfVectorizer(**kwargs)
     sparse_matrix = vectorizer.fit_transform(df[TEXT_COLUMN])
     feature_matrix = sparse_matrix.todense()
@@ -85,12 +89,17 @@ def extract_and_encode_labels(df: pd.DataFrame) -> Tuple[np.array, Dict[str, int
     labels = list(df[LABEL_COLUMN].map(label_mapping))
     return np.array(labels), label_mapping
 
+def accuracy(confusion_matrix):
+    diagonal_sum = confusion_matrix.trace()
+    sum_of_all_elements = confusion_matrix.sum()
+    return diagonal_sum / sum_of_all_elements
+
 
 if __name__ == "__main__":
     local_dir = './data'
 
     compute_features = not os.path.exists(f'{local_dir}/feature_data.csv')
-    model_type = "knn"
+    model_type = "mlp" #"{knn", "mlp", "rf"}  
 
     if compute_features:
         # download the file
@@ -111,11 +120,11 @@ if __name__ == "__main__":
 
     count_of_no_text = len(df[df[TEXT_COLUMN].isnull()])
     df = df.dropna(subset=[TEXT_COLUMN])
-    _LOGGER.info(f"Dropped {count_of_no_text} records because {TEXT_COLUMN} was null or NaN")
+    print("Dropped {0} records because {1} was null or NaN".format(count_of_no_text, TEXT_COLUMN))
 
     count_of_null_labels = len(df[df[LABEL_COLUMN].isnull()])
     df = df.dropna(subset=[LABEL_COLUMN])
-    _LOGGER.info(f"Dropped {count_of_null_labels} records because {LABEL_COLUMN} was null or NaN")
+    print("Dropped {0} records because {1} was null or NaN".format(count_of_null_labels, LABEL_COLUMN))
 
     # create a sparse feature matrix of size n x m,
     # where n = number of documents, m = number of words in vocabulary
@@ -127,42 +136,33 @@ if __name__ == "__main__":
 
     X_train, X_test, y_train, y_test = train_test_split(feature_matrix, labels, test_size=0.05, random_state=1)
 
-    _LOGGER.info(f"Training on {X_train.shape[0]} samples, validating on {X_test.shape[0]} samples.")
-    _LOGGER.info(f"Number of features: {num_features}")
+    print("Training on {0} sample, validating on {1} samples".format(X_train.shape[0], X_test.shape[0]))
+    print("Number of features: {0}".format(num_features))
 
     if model_type == "mlp":
-        labels = one_hot(np.array(labels), len(label_mapping))
-        inputs = keras.Input(shape=(num_features,))
-        layer_1 = layers.Dense(8192, activation=ReLU())(inputs)
-        layer_2 = layers.Dense(2048, activation=ReLU())(layer_1)
-        layer_3 = layers.Dense(512, activation=ReLU())(layer_2)
-        layer_4 = layers.Dense(128, activation=ReLU())(layer_3)
-        layer_5 = layers.Dense(32, activation=ReLU())(layer_4)
-        layer_6 = layers.Dense(8, activation=ReLU())(layer_5)
-        outputs = layers.Dense(num_labels, activation="softmax")(layer_6)
-
-        model = keras.Model(inputs=inputs, outputs=outputs)
-        _LOGGER.info(model.summary())
-        model.compile(
-            optimizer=keras.optimizers.Adamax(),  # Optimizer
-            loss=keras.losses.CategoricalCrossentropy(),  # Loss function to minimize
-            metrics=[keras.metrics.Accuracy()]  # List of metrics to monitor
-        )
-        model.fit(X_train, y_train,
-                  validation_data=(X_test, y_test), shuffle=True, epochs=200, batch_size=64,
-                  callbacks=[CSVLogger('./results.csv')])
-        model.save('model')
+        print("MLP training: This may take a while. You may want to grab a coffee.")
+        model = MLPClassifier(hidden_layer_sizes=(num_features, 256, 128, 64, 32, num_labels),
+                              #(8192, 2048, 512, 128, 32, 8, num_labels), 
+                              activation='relu', solver='adam', verbose=1, learning_rate_init=0.01, batch_size=4096,
+                              max_iter=25)
+        model.fit(X_train, y_train)
+        predict_train = model.predict(X_train)
+        predict_test = model.predict(X_test)
+        training_acc = confusion_matrix(predict_train, y_train)
+        validation_acc = confusion_matrix(predict_test, y_test)
+        print("Training accuracy with MLP: {0}".format(accuracy(training_acc)))
+        print("Validation accuracy with MLP: {0}".format(accuracy(validation_acc)))
     elif model_type == "rf":
         rf = RandomForestClassifier(n_jobs=-1)
         rf.fit(X_train, y_train)
         training_acc = rf.score(X_train, y_train)
         validation_acc = rf.score(X_test, y_test)
-        _LOGGER.info(f"Training accuracy with Random Forest: {training_acc}")
-        _LOGGER.info(f"Validation accuracy with Random Forest: {validation_acc}")
+        print("Training accuracy with Random Forest: {0}".format(training_acc))
+        print("Validation accuracy with Random Forest: {0}".format(validation_acc))
     elif model_type == "knn":
         knn = KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
         knn.fit(X_train, y_train)
         training_acc = knn.score(X_train, y_train)
         validation_acc = knn.score(X_test, y_test)
-        _LOGGER.info(f"Training accuracy with kNN: {training_acc}")
-        _LOGGER.info(f"Validation accuracy with kNN: {validation_acc}")
+        print("Training accuracy with kNN: {0}".format(training_acc))
+        print("Validation accuracy with kNN: {0}".format(validation_acc))
